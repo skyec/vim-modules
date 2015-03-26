@@ -1,20 +1,20 @@
 package main
 
 import (
-	"os"
-	"fmt"
 	"bufio"
-	"os/exec"
-	"regexp"
 	"flag"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 )
-
 
 const CONFIG_FILE = ".vim/vim-modules.conf"
 
 type cmdFunc func() error
-type cmd map[string] cmdFunc
+type cmd map[string]cmdFunc
 
 type config struct {
 	lines []string
@@ -22,14 +22,17 @@ type config struct {
 
 var commands = cmd{
 	"install": cmdInstall,
-	"clean": cmdClean,
+	"clean":   cmdClean,
 }
 
 var dryRun bool
+var saveModule bool
+
 func main() {
 
 	help := flag.Bool("h", false, "This help screen")
 	flag.BoolVar(&dryRun, "dry-run", false, "Make no modifications")
+	flag.BoolVar(&saveModule, "s", false, "Save the module to the config file")
 	flag.Parse()
 
 	if *help {
@@ -56,7 +59,7 @@ func main() {
 func showHelp() {
 	fmt.Println("Usage:")
 	fmt.Printf("%s [options] install | clear\n\nOptions:\n", os.Args[0])
-	flag.VisitAll(func(f *flag.Flag){
+	flag.VisitAll(func(f *flag.Flag) {
 		fmt.Printf(" - %s (%s) %s\n", f.Name, f.DefValue, f.Usage)
 	})
 	fmt.Println("")
@@ -78,23 +81,45 @@ func cmdInstall() error {
 		return fmt.Errorf("failed to cd into ./vim: %s", err)
 	}
 
-	conf, err := getConfig()
-	if err != nil {
-		return err
-	}
-
-	for _, module := range conf.lines {
-		name := gitParseRepoName(module)
-		if _, err := os.Stat(name); err == nil {
-			fmt.Printf("Module '%s' already exists. Skipping.\n", name)
-			continue
-		}
-		err := gitClone(module)
+	// No module to install? use the config
+	newModule := flag.Arg(1)
+	if newModule == "" {
+		conf, err := getConfig()
 		if err != nil {
 			return err
 		}
+
+		for _, module := range conf.lines {
+			err = installOne(module)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		err = installOne(newModule)
+		if err != nil {
+			return err
+		}
+		if saveModule {
+			conf, err := getConfig()
+			conf.lines = append(conf.lines, newModule)
+			err = saveConfig(conf)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func installOne(module string) error {
+
+	name := gitParseRepoName(module)
+	if _, err := os.Stat(name); err == nil {
+		fmt.Printf("Module '%s' already exists. Skipping.\n", name)
+		return nil
+	}
+	return gitClone(module)
 }
 
 func getConfig() (*config, error) {
@@ -123,8 +148,34 @@ func getConfig() (*config, error) {
 		}
 	}
 
-
 	return conf, nil
+}
+
+func saveConfig(conf *config) error {
+	home := os.Getenv("HOME")
+	path := home + "/" + CONFIG_FILE
+
+	fd, err := ioutil.TempFile(filepath.Dir(path), "vim-modules.conf")
+	if err != nil {
+		return err
+	}
+
+	buff := bufio.NewWriter(fd)
+	for _, line := range conf.lines {
+		buff.Write([]byte(line))
+		buff.Write([]byte("\n"))
+	}
+
+	err = buff.Flush()
+	if err != nil {
+		return err
+	}
+
+	err = fd.Close()
+	if err != nil {
+		return err
+	}
+	return os.Rename(fd.Name(), path)
 }
 
 func gitParseRepoName(repo string) string {
