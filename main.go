@@ -11,7 +11,7 @@ import (
 	"regexp"
 )
 
-const CONFIG_FILE = ".vim/vim-modules.conf"
+const configFile = ".vim/vim-modules.conf"
 
 type cmdFunc func() error
 type cmd map[string]cmdFunc
@@ -125,7 +125,7 @@ func installOne(module string) error {
 func getConfig() (*config, error) {
 
 	home := os.Getenv("HOME")
-	path := home + "/" + CONFIG_FILE
+	path := home + "/" + configFile
 
 	fd, err := os.Open(path)
 	if err != nil {
@@ -153,7 +153,7 @@ func getConfig() (*config, error) {
 
 func saveConfig(conf *config) error {
 	home := os.Getenv("HOME")
-	path := home + "/" + CONFIG_FILE
+	path := home + "/" + configFile
 
 	fd, err := ioutil.TempFile(filepath.Dir(path), "vim-modules.conf")
 	if err != nil {
